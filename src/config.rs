@@ -145,16 +145,16 @@ mod tests {
         let text = r#"
 [cables.1]
 gpu_uuid = "GPU-aaaa"
-label = "RTX PRO 6000"
+label = "top card"
 
 [cables.2]
-label = "RTX 5090"
+label = "bottom card"
 
 [limits]
 rating = 9.5
 "#;
         let c = Config::parse(text).unwrap();
-        assert_eq!((c.label(0).as_str(), c.label(1).as_str()), ("RTX PRO 6000", "RTX 5090"));
+        assert_eq!((c.label(0).as_str(), c.label(1).as_str()), ("top card", "bottom card"));
         assert_eq!(c.limits.overrides().rating, Some(9.5));
         assert_eq!((Config::default().label(0).as_str(), Config::default().label(1).as_str()), ("GPU 0", "GPU 1"));
     }
@@ -168,8 +168,8 @@ rating = 9.5
 
     #[test]
     fn labels_lose_control_characters() {
-        let c = Config::parse("[cables.1]\nlabel = \"RTX\\u001b[2J 5090\"\n").unwrap();
-        assert_eq!(c.cable(0).unwrap().label.as_deref(), Some("RTX?[2J 5090"));
+        let c = Config::parse("[cables.1]\nlabel = \"top\\u001b[2J card\"\n").unwrap();
+        assert_eq!(c.cable(0).unwrap().label.as_deref(), Some("top?[2J card"));
     }
 
     #[test]

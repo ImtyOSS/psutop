@@ -138,6 +138,20 @@ pub fn mode_string(mode: u32, char_device: bool) -> String {
 }
 
 /// Run every check in order. `probe` talks to the PSU once and describes what answered.
+/// Opens the lock file for reading without following a symlink or waiting on a pipe, the same
+/// way psutop does (Linux; elsewhere a plain open after the file-type check).
+fn open_lock(path: &Path) -> std::io::Result<File> {
+    let mut o = OpenOptions::new();
+    o.read(true);
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        o.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let f = o.open(path)?;
+    if f.metadata()?.is_file() { Ok(f) } else { Err(std::io::Error::other("not a regular file")) }
+}
+
 pub fn run(env: &Env, probe: Option<&mut dyn FnMut() -> Result<String, String>>) -> Vec<Check> {
     let mut out = Vec::new();
     let groups_text = env.read("/etc/group").unwrap_or_default();
@@ -231,7 +245,15 @@ pub fn run(env: &Env, probe: Option<&mut dyn FnMut() -> Result<String, String>>)
             format!("{LOCK_PATH} is a symlink; psutop won't follow it and runs without the lock"),
             Some("sudo rm /run/lock/msi-psu.lock"),
         ),
-        Ok(_) => match File::open(&lock).map(|f| (f.try_lock(), f)) {
+        // Anyone can create files in /run/lock. Opening a named pipe there would wait forever
+        // for the other end, so only a regular file is opened, and never in blocking mode.
+        Ok(m) if !m.file_type().is_file() => check(
+            "Lock file",
+            Status::Warn,
+            format!("{LOCK_PATH} is not a regular file; psutop won't open it and runs without the lock"),
+            Some("sudo rm /run/lock/msi-psu.lock"),
+        ),
+        Ok(_) => match open_lock(&lock).map(|f| (f.try_lock(), f)) {
             Ok((Ok(()), f)) => {
                 let _ = f.unlock();
                 check("Lock file", Status::Ok, format!("{LOCK_PATH} is free"), None)
@@ -360,6 +382,21 @@ mod tests {
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].path, PathBuf::from("/etc/udev/rules.d/71-msi-psu.rules"));
         assert_eq!((rules[0].group.as_deref(), rules[0].uaccess), (None, true), "the shipped rule is uaccess only");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Another user can put a named pipe at the lock path; doctor must not wait on it.
+    #[test]
+    fn a_pipe_at_the_lock_path_is_reported_not_opened() {
+        let root = fake_root("fifo", 996);
+        let lock = root.join(LOCK_PATH.trim_start_matches('/'));
+        assert!(std::process::Command::new("mkfifo").arg(&lock).status().unwrap().success());
+        let start = std::time::Instant::now();
+        let checks = run(&env(root.clone(), true), None);
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
+        let c = checks.iter().find(|c| c.name == "Lock file").unwrap();
+        assert_eq!(c.status, Status::Warn, "{c:?}");
+        assert!(c.detail.contains("not a regular file"), "{c:?}");
         let _ = std::fs::remove_dir_all(root);
     }
 

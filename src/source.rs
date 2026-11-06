@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -18,6 +18,10 @@ pub const LOCK_PATH: &str = "/run/lock/msi-psu.lock";
 pub const REDISCOVER_EVERY: Duration = Duration::from_secs(2);
 /// Consecutive unhealthy ticks before the connection is dropped and rediscovered.
 const DROP_AFTER_UNHEALTHY: u32 = 3;
+/// Samples waiting for a reader that has stalled (a `watch` pipe nobody reads, a terminal
+/// paused with Ctrl-S). Past this, new samples are dropped rather than stored without limit;
+/// each sample keeps the time it was read, so the ones kept are never shown as fresh.
+pub const QUEUE: usize = 64;
 pub const USB_IDS: &str = "0db0:808c or 0db0:aa6f";
 pub const UDEV_RULE: &str = "/etc/udev/rules.d/71-msi-psu.rules";
 
@@ -87,6 +91,12 @@ impl Drop for Acquisition {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(h) = self.handle.take() {
+            // The thread may be blocked sending a state event into a full queue: keep emptying
+            // it until the thread sees `stop` and ends.
+            while !h.is_finished() {
+                while self.rx.try_recv().is_ok() {}
+                std::thread::sleep(Duration::from_millis(5));
+            }
             let _ = h.join();
         }
     }
@@ -108,7 +118,7 @@ fn sleep_until(deadline: Instant, stop: &AtomicBool) -> bool {
 
 /// Discover, then poll every `interval` until the feed goes quiet, then rediscover; forever.
 pub fn spawn(mut feed: Box<dyn Feed>, interval: Duration) -> Acquisition {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = mpsc::sync_channel(QUEUE);
     let stop = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&stop);
     let handle = std::thread::Builder::new()
@@ -118,7 +128,7 @@ pub fn spawn(mut feed: Box<dyn Feed>, interval: Duration) -> Acquisition {
     Acquisition { rx, stop, handle: Some(handle) }
 }
 
-fn run(feed: &mut dyn Feed, interval: Duration, tx: &Sender<FeedEvent>, stop: &AtomicBool) {
+fn run(feed: &mut dyn Feed, interval: Duration, tx: &SyncSender<FeedEvent>, stop: &AtomicBool) {
     while !stop.load(Ordering::Relaxed) {
         let info = match feed.discover() {
             Discovered::Found(info) => info,
@@ -138,8 +148,9 @@ fn run(feed: &mut dyn Feed, interval: Duration, tx: &Sender<FeedEvent>, stop: &A
         loop {
             let s = feed.poll();
             let healthy = s.report.is_healthy(&caps);
-            if tx.send(FeedEvent::Sample(Box::new(s))).is_err() {
-                return;
+            match tx.try_send(FeedEvent::Sample(Box::new(s))) {
+                Ok(()) | Err(TrySendError::Full(_)) => {}
+                Err(TrySendError::Disconnected(_)) => return,
             }
             unhealthy = if healthy { 0 } else { unhealthy + 1 };
             if unhealthy >= DROP_AFTER_UNHEALTHY {
@@ -230,15 +241,19 @@ pub mod msi {
     impl PsuLock {
         fn open() -> Self {
             use std::os::unix::fs::OpenOptionsExt;
+            // Anyone can create files in /run/lock. O_NONBLOCK keeps a named pipe planted there
+            // from blocking the open forever, and only a regular file is used as the lock.
+            let flags = libc::O_NOFOLLOW | libc::O_NONBLOCK;
             let file = OpenOptions::new()
                 .create(true)
                 .truncate(false)
                 .write(true)
                 .mode(0o666)
-                .custom_flags(libc::O_NOFOLLOW)
+                .custom_flags(flags)
                 .open(LOCK_PATH)
-                .or_else(|_| OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(LOCK_PATH))
-                .ok();
+                .or_else(|_| OpenOptions::new().read(true).custom_flags(flags).open(LOCK_PATH))
+                .ok()
+                .filter(|f| f.metadata().is_ok_and(|m| m.is_file()));
             PsuLock(file)
         }
 
@@ -342,7 +357,20 @@ pub mod msi {
 
 #[cfg(test)]
 mod tests {
-    use super::trace_bytes;
+    use super::*;
+
+    /// A reader that stops reading never makes the queue grow past [`QUEUE`], and dropping the
+    /// acquisition still ends its thread.
+    #[test]
+    fn a_stalled_reader_never_grows_the_queue_past_its_bound() {
+        let acq = spawn(Box::new(crate::sim::SimFeed::new("normal")), Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(400));
+        let queued = acq.rx.try_iter().count();
+        assert!(queued <= QUEUE, "{queued} queued");
+        let start = Instant::now();
+        drop(acq);
+        assert!(start.elapsed() < Duration::from_secs(2));
+    }
 
     #[test]
     fn the_serial_number_reply_is_withheld() {

@@ -73,7 +73,11 @@ impl LimitOverrides {
         let l = Limits {
             rating: self.rating.unwrap_or(d.rating),
             alarm: self.alarm.unwrap_or(d.alarm),
-            alarm_delay: self.alarm_seconds.map_or(d.alarm_delay, |s| Duration::from_secs_f32(s.clamp(0.0, 600.0))),
+            // `try_`: NaN passes `clamp` unchanged, and a NaN duration would panic. It fails
+            // `seconds_ok` below, so the defaults apply.
+            alarm_delay: self
+                .alarm_seconds
+                .map_or(d.alarm_delay, |s| Duration::try_from_secs_f32(s.clamp(0.0, 600.0)).unwrap_or(d.alarm_delay)),
             fast: self.fast.unwrap_or(d.fast),
             instant: self.instant.unwrap_or(d.instant),
             uneven: self.uneven.unwrap_or(d.uneven),
@@ -136,5 +140,14 @@ mod tests {
         assert!(r.warning.is_some());
         let r = LimitOverrides { instant: Some(40.0), ..Default::default() }.resolve();
         assert!(r.warning.is_some());
+    }
+
+    #[test]
+    fn a_nan_or_infinite_alarm_delay_is_rejected_not_a_crash() {
+        for s in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let r = LimitOverrides { alarm_seconds: Some(s), ..LimitOverrides::default() }.resolve();
+            assert_eq!(r.limits, Limits::V1, "{s}");
+            assert!(r.warning.is_some(), "{s}");
+        }
     }
 }

@@ -62,7 +62,7 @@ Open a new shell, or run `source ~/.cargo/env`, so `cargo` is on your `PATH`.
 ## 4. Build
 
 ```bash
-git clone <this repository's URL> psutop
+git clone https://github.com/ImtyOSS/psutop.git
 cd psutop
 cargo build --release --locked
 ```

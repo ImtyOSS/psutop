@@ -44,6 +44,8 @@ scenario):
 - `ladder.rs`: "Details are in MeltAlarm." dropped.
 - `view.rs`: tooltip and connecting texts start with `psutop ·`; "psutop still alarms."
 - `settings.rs`, `state.rs`: file headers say psutop.
+- `limits.rs`: an `alarm_seconds` of NaN falls back to the defaults with a warning instead of
+  panicking.
 - `tests.rs`: the same texts.
 
 The `INSTALL` log line in `log.rs` still names MeltAlarm: only MeltAlarm's Windows installer

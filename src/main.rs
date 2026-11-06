@@ -18,6 +18,9 @@ use psutop::ui::{self, App, theme};
 
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " · built on MeltAlarm 0.3.9 (7763086), MIT © 2026 Denis Domanskii");
 const MIN_INTERVAL: Duration = Duration::from_millis(500);
+/// The alarm logic treats samples more than 3 s apart as a break and data older than 2.5 s as
+/// stale, so a slower poll would delay or lose overload alarms.
+const MAX_INTERVAL: Duration = Duration::from_secs(2);
 
 const EXIT_NOT_FOUND: u8 = 2;
 const EXIT_DENIED: u8 = 3;
@@ -31,7 +34,7 @@ struct Cli {
     /// Config file [default: ~/.config/psutop/config.toml]
     #[arg(long, global = true, value_name = "PATH")]
     config: Option<PathBuf>,
-    /// Poll interval, e.g. 1s or 500ms (minimum 500ms)
+    /// Poll interval, e.g. 1s or 500ms (500ms to 2s)
     #[arg(long, global = true, value_parser = parse_duration, default_value = "1s")]
     interval: Duration,
     /// Show raw PSU frames (TUI: start in the raw pane)
@@ -96,7 +99,18 @@ fn parse_duration(s: &str) -> Result<Duration, String> {
     if !(secs.is_finite() && secs > 0.0) {
         return Err(format!("not a positive duration: {s}"));
     }
-    Ok(Duration::from_secs_f64(secs))
+    Duration::try_from_secs_f64(secs).map_err(|_| format!("too long: {s}"))
+}
+
+/// The interval psutop polls at, and a note when the asked-for one was out of range.
+fn clamp_interval(asked: Duration) -> (Duration, Option<&'static str>) {
+    if asked < MIN_INTERVAL {
+        (MIN_INTERVAL, Some("interval raised to the 500 ms minimum"))
+    } else if asked > MAX_INTERVAL {
+        (MAX_INTERVAL, Some("interval lowered to the 2 s maximum: slower polling would delay or miss overload alarms"))
+    } else {
+        (asked, None)
+    }
 }
 
 fn parse_scenario(s: &str) -> Result<String, String> {
@@ -114,6 +128,12 @@ fn wall() -> String {
 
 fn iso() -> String {
     chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
+}
+
+/// The wall-clock time of `at`, a moment that may have passed while a sample waited in the queue.
+fn local_at(at: Instant) -> chrono::DateTime<chrono::Local> {
+    let age = chrono::Duration::from_std(Instant::now().saturating_duration_since(at)).unwrap_or_default();
+    chrono::Local::now() - age
 }
 
 struct Ctx {
@@ -224,7 +244,7 @@ fn once(ctx: &Ctx, json: bool) -> ExitCode {
     let snap = m.snapshot(now);
     let mut out = std::io::stdout().lock();
     if json {
-        let _ = writeln!(out, "{}", serde_json::to_string_pretty(&output::json(&snap, &iso())).unwrap_or_default());
+        let _ = writeln!(out, "{}", serde_json::to_string_pretty(&output::json(&snap, &iso(), ctx.cli.raw)).unwrap_or_default());
     } else {
         let lines = if std::io::stdout().is_terminal() {
             output::card_block(&snap, &ctx.theme(), &chrono::Local::now().format("%H:%M:%S").to_string())
@@ -235,7 +255,8 @@ fn once(ctx: &Ctx, json: bool) -> ExitCode {
             let _ = writeln!(out, "{l}");
         }
     }
-    if ctx.cli.raw {
+    // With --json the raw frames are inside the JSON.
+    if ctx.cli.raw && !json {
         for l in output::raw_lines(&snap, &wall()) {
             let _ = writeln!(out, "{l}");
         }
@@ -259,6 +280,9 @@ fn watch(ctx: &Ctx, live: bool, csv: bool, json: bool, count: Option<u64>) -> Ex
     let mut connected = false;
     let mut printed = 0u64;
     let mut out = std::io::stdout().lock();
+    // The newest moment handled: a sample counts at the time it was read, so one that waited
+    // behind a stalled reader is printed with that time, never as fresh.
+    let mut now = Instant::now();
     if csv && writeln!(out, "{}", output::csv_header()).is_err() {
         return ExitCode::SUCCESS;
     }
@@ -277,18 +301,26 @@ fn watch(ctx: &Ctx, live: bool, csv: bool, json: bool, count: Option<u64>) -> Ex
             }
         }
         connected |= matches!(ev, FeedEvent::Connected(_));
-        let now = Instant::now();
+        now = now.max(match &ev {
+            FeedEvent::Sample(s) => s.report.at,
+            _ => Instant::now(),
+        });
         m.handle(ev, now);
+        // Only the full-screen view shows the event log; drop it here so it can't pile up.
+        let _ = m.drain_log();
         if !is_sample {
             continue;
         }
         let snap = m.snapshot(now);
+        let local = local_at(now);
+        let wall_t = local.format("%Y-%m-%d %H:%M:%S").to_string();
         let ok = if json {
-            writeln!(out, "{}", serde_json::to_string(&output::json(&snap, &iso())).unwrap_or_default())
+            let iso_t = local.to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
+            writeln!(out, "{}", serde_json::to_string(&output::json(&snap, &iso_t, ctx.cli.raw)).unwrap_or_default())
         } else if csv {
-            writeln!(out, "{}", output::csv_sample(&snap, &wall()))
+            writeln!(out, "{}", output::csv_sample(&snap, &wall_t))
         } else if tty {
-            let block = output::card_block(&snap, &theme, &chrono::Local::now().format("%H:%M:%S").to_string());
+            let block = output::card_block(&snap, &theme, &local.format("%H:%M:%S").to_string());
             // --live redraws from the top of the screen, like watch(1): counting the previous
             // block's lines breaks as soon as a line wraps on a narrow terminal.
             let mut text = if live { String::from("\x1b[H\x1b[J") } else { String::new() };
@@ -298,10 +330,10 @@ fn watch(ctx: &Ctx, live: bool, csv: bool, json: bool, count: Option<u64>) -> Ex
             }
             write!(out, "{text}")
         } else {
-            output::plain(&snap, &wall()).iter().try_for_each(|l| writeln!(out, "{l}"))
+            output::plain(&snap, &wall_t).iter().try_for_each(|l| writeln!(out, "{l}"))
         };
         if ctx.cli.raw && !json && !csv {
-            for l in output::raw_lines(&snap, &wall()) {
+            for l in output::raw_lines(&snap, &wall_t) {
                 let _ = writeln!(out, "{l}");
             }
         }
@@ -430,12 +462,10 @@ fn main() -> ExitCode {
         Ok(c) => c,
         Err(e) => return fail(1, &format!("config: {e}")),
     };
-    let interval = if cli.interval < MIN_INTERVAL {
-        eprintln!("psutop: interval raised to the 500 ms minimum");
-        MIN_INTERVAL
-    } else {
-        cli.interval
-    };
+    let (interval, note) = clamp_interval(cli.interval);
+    if let Some(note) = note {
+        eprintln!("psutop: {note}");
+    }
     let ctx = Ctx { config, config_path, interval, cli };
     match &ctx.cli.cmd {
         Some(Cmd::Once { json }) => once(&ctx, *json),
@@ -465,6 +495,17 @@ mod tests {
         assert_eq!(parse_duration("2"), Ok(Duration::from_secs(2)));
         assert_eq!(parse_duration("1m"), Ok(Duration::from_secs(60)));
         assert!(parse_duration("0s").is_err() && parse_duration("fast").is_err() && parse_duration("3h").is_err());
+        // Too big for a Duration: an error, not a panic.
+        assert!(parse_duration("99999999999999999999999s").is_err());
+    }
+
+    #[test]
+    fn the_interval_stays_fast_enough_for_the_alarms() {
+        assert_eq!(clamp_interval(Duration::from_millis(100)).0, MIN_INTERVAL);
+        assert_eq!(clamp_interval(Duration::from_secs(1)), (Duration::from_secs(1), None));
+        assert_eq!(clamp_interval(Duration::from_secs(2)).0, Duration::from_secs(2));
+        assert_eq!(clamp_interval(Duration::from_secs(4)).0, MAX_INTERVAL);
+        assert_eq!(clamp_interval(Duration::from_secs(60)).0, MAX_INTERVAL);
     }
 
     #[test]

@@ -17,8 +17,8 @@ shows, live, how much current each wire of both GPU power cables carries.
   `● OK` / `● Caution` pill, six cut bars with values, and `Imbalance` /
   `PSU status`. This matches the two screenshots the user supplied.
 
-On the reference machine an MSI MPG Ai1600TS feeds two GPUs (an RTX PRO 6000 and an
-RTX 5090) through its two 12V-2x6 connectors. Which GPU is on which connector has to be
+On the reference machine an MSI MPG Ai1600TS feeds two GPUs through its two 12V-2x6
+connectors. Which GPU is on which connector has to be
 found on each machine (§10).
 
 psutop is built on **MeltAlarm** (§3) and reuses its code wherever it fits.
@@ -136,7 +136,9 @@ and `toml`.
 - On Linux hidraw, writes are 65 bytes (report number `00` plus 64) and reads
   are 64 bytes. MeltAlarm's parser accepts the report ID present or
   stripped. Verified live on 2026-10-15.
-- Polling: `E0`, `C1`, `E1` every tick (default 1 s, minimum 500 ms). `C0`
+- Polling: `E0`, `C1`, `E1` every tick (default 1 s, 500 ms to 2 s: the alarm logic treats
+  samples more than 3 s apart as a break and data older than 2.5 s as stale, so a slower
+  poll would delay or miss overload alarms). `C0`
   every 60 s. Identity at connect only.
 
 `E0` field map. Offsets are LINEAR11 words counted from the reply's data:

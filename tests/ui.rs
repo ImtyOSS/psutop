@@ -103,6 +103,18 @@ fn no_screen_names_meltalarm() {
     }
 }
 
+/// `--json --raw` puts the raw frames inside the JSON, so the output stays one valid document.
+#[test]
+fn json_with_raw_frames_stays_valid_json() {
+    let (m, now) = monitor("normal", 3);
+    let snap = m.snapshot(now);
+    let text = serde_json::to_string(&psutop::output::json(&snap, "t", true)).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!(v["raw"]["e0"].as_str().is_some_and(|h| h.starts_with("51E0")), "{v}");
+    let plain = serde_json::to_string(&psutop::output::json(&snap, "t", false)).unwrap();
+    assert!(!plain.contains("\"raw\""));
+}
+
 #[test]
 fn zoom_raw_help_and_mono() {
     let buf = render("caution", 12, 120, 40, Depth::True, |a| a.zoom = Some(1));

@@ -90,7 +90,7 @@ psutop watch [--live] [--csv | --json] [--count N]
 psutop info                PSU identity, firmware, Safeguard+ settings, cable labels
 psutop doctor              check the setup (USB, device, udev rule, group, access) and print fixes
 
-Global options: --interval 1s  --config <path>  --raw  --no-color  --nerd-font
+Global options: --interval 1s (500ms–2s)  --config <path>  --raw  --no-color  --nerd-font
                 --bell  --trace-io  --sim <scenario> (--sim list)
 ```
 

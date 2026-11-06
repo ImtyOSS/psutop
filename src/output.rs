@@ -51,6 +51,18 @@ pub struct JsonSample {
     pub psu: JsonPsu,
     /// The strip under the cards: alarm, caution or cleared, in words.
     pub alert: Option<JsonAlert>,
+    /// `--raw`: the PSU's raw reply frames in hex, kept inside the JSON so it stays valid.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw: Option<JsonRaw>,
+}
+
+#[derive(Serialize)]
+pub struct JsonRaw {
+    pub e0: Option<String>,
+    pub c1: Option<String>,
+    pub e1: Option<String>,
+    pub c0: Option<String>,
+    pub simulated: bool,
 }
 
 #[derive(Serialize)]
@@ -111,7 +123,8 @@ fn state_word(c: &Card) -> String {
     c.status_text.clone()
 }
 
-pub fn json(snap: &Snapshot, time: &str) -> JsonSample {
+/// `raw`: include the raw frames (`--raw`).
+pub fn json(snap: &Snapshot, time: &str, raw: bool) -> JsonSample {
     let rails = snap.rails.unwrap_or_default();
     JsonSample {
         time: time.to_owned(),
@@ -150,6 +163,17 @@ pub fn json(snap: &Snapshot, time: &str) -> JsonSample {
             faults: snap.vm.source.as_ref().map(|s| s.faults.clone()).unwrap_or_default(),
         },
         alert: snap.strip.as_ref().map(|s| JsonAlert { kind: alert_kind(s.kind), text: s.text.clone() }),
+        raw: raw.then(|| {
+            let r = snap.raw.as_ref();
+            let hex = |f: Option<&Vec<u8>>| f.map(|f| frame::hex(f));
+            JsonRaw {
+                e0: hex(r.and_then(|r| r.e0.as_ref())),
+                c1: hex(r.and_then(|r| r.c1.as_ref())),
+                e1: hex(r.and_then(|r| r.e1.as_ref())),
+                c0: hex(r.and_then(|r| r.c0.as_ref())),
+                simulated: r.is_some_and(|r| r.simulated),
+            }
+        }),
     }
 }
 
