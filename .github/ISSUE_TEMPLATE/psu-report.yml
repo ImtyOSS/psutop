@@ -1,0 +1,65 @@
+name: PSU test report
+description: You ran psutop on your PSU. Tell us whether it worked, so others know.
+title: "PSU test: <PSU model> on <distribution>"
+labels: ["psu-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing! Reports that something doesn't work are just as useful as ones that say it does.
+        **Before pasting anything, remove serial numbers** and anything else that identifies you or your machine.
+  - type: input
+    id: psu
+    attributes:
+      label: PSU model and firmware
+      description: From `psutop info` (Model and Firmware lines).
+      placeholder: MSI MPG Ai1300TS, firmware 10
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Distribution, kernel and psutop version
+      description: "`cat /etc/os-release`, `uname -r`, `psutop --version`"
+      placeholder: Fedora 43, kernel 6.17, psutop 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Works, and the readings match an independent source
+        - Works, but I had nothing to compare the readings with
+        - Runs, but some readings look wrong
+        - Doesn't find or can't read the PSU
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: psutop doctor
+      description: Paste the output of `psutop doctor`.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: readings
+    attributes:
+      label: Readings
+      description: |
+        What each wire showed at idle and under load. If you compared with the vendor's app or a clamp meter, put both numbers side by side.
+        `psutop once --json` output is welcome.
+      render: text
+  - type: textarea
+    id: trace
+    attributes:
+      label: Packet trace (optional)
+      description: |
+        `psutop once --trace-io 2> trace.txt`, then paste trace.txt. **Read it first and remove anything that looks like a serial number.**
+      render: text
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Error messages, odd behaviour, what you'd like to see.

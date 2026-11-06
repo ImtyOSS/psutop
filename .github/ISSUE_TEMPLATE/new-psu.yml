@@ -1,0 +1,56 @@
+name: New PSU
+description: Ask for, or start work on, support for a PSU that measures per-wire GPU cable current.
+title: "New PSU: <vendor> <model>"
+labels: ["new-psu"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        psutop can support a PSU when **the PSU itself measures the current on each +12 V wire** of its 12V-2x6 / 12VHPWR GPU connectors and reports it to the computer.
+        If the vendor's app shows a current for each of the six wires, it probably does.
+        The full guide is in [CONTRIBUTING.md](https://github.com/ImtyOSS/psutop/blob/main/CONTRIBUTING.md#add-support-for-a-new-psu).
+  - type: input
+    id: psu
+    attributes:
+      label: PSU vendor and model
+      placeholder: Example Power PX-1600
+    validations:
+      required: true
+  - type: input
+    id: usb
+    attributes:
+      label: USB vendor:product ID
+      description: "`lsusb` on Linux, or Device Manager → Hardware Ids (`VID_xxxx&PID_xxxx`) on Windows."
+      placeholder: "abcd:1234"
+  - type: input
+    id: app
+    attributes:
+      label: Vendor app that shows per-wire current
+      placeholder: Example Center 2.1 (Windows)
+  - type: dropdown
+    id: role
+    attributes:
+      label: How can you help?
+      multiple: true
+      options:
+        - I own this PSU and can run tests
+        - I can capture the vendor app's USB traffic
+        - I want to write the driver
+    validations:
+      required: true
+  - type: textarea
+    id: protocol
+    attributes:
+      label: What you know about the protocol
+      description: |
+        Captures, notes or links to public documentation. **Remove serial numbers** from captures.
+        Never send the PSU bytes you haven't seen the vendor's own app send.
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Ground rules
+      options:
+        - label: A driver will only send the read requests and connect handshake the vendor's own software sends; it never writes settings or firmware.
+          required: true
+        - label: Protocol knowledge comes from my own captures or public documentation, not from copied proprietary or incompatibly licensed code.
+          required: true

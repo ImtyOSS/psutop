@@ -39,6 +39,23 @@ same with NVIDIA, AMD or Intel GPUs and needs no GPU driver or tool.
 The PSU's USB cable must be connected to a motherboard USB 2.0 header. Any GPUs work: psutop
 reads only the PSU.
 
+## Help wanted: more PSUs
+
+psutop's goal is to support **every PSU that measures the current on each wire of its GPU
+cables**, not just MSI's. That needs people who own those PSUs. Two ways to help:
+
+- **Test a PSU.** Own an MSI MPG Ai1300TS? It has never been run on Linux. Run psutop, compare
+  its readings with the vendor's app or a clamp meter, and send a
+  [PSU test report](https://github.com/ImtyOSS/psutop/issues/new?template=psu-report.yml).
+  The same goes for any new driver waiting on hardware. No coding needed.
+- **Add a PSU.** If your PSU's own app shows a current for each 12V-2x6 wire, psutop can learn
+  to read it. [CONTRIBUTING.md](CONTRIBUTING.md) walks through it: capturing the vendor app's
+  USB traffic, writing a read-only driver, connecting it to psutop and testing it. Start with a
+  [New PSU](https://github.com/ImtyOSS/psutop/issues/new?template=new-psu.yml) issue.
+
+Every driver follows the same rule as the MSI one: it sends only the read requests the vendor's
+own software sends, and nothing that could change a setting.
+
 ## Tested on
 
 | Where | What was checked | Date |

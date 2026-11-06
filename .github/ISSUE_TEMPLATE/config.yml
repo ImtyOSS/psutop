@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/ImtyOSS/psutop/security/advisories/new
+    about: Security issues go through GitHub's private report page, not a public issue.
