@@ -1,0 +1,9 @@
+# MeltAlarm's read-only contract (its docs/ARCHITECTURE.md §9), kept inside psutop: bytes reach
+# the PSU only through meltalarm-source-msi's single reviewed write call site. psutop itself
+# never calls these.
+disallowed-methods = [
+    { path = "hidapi::HidDevice::write", reason = "device writes only via meltalarm-source-msi's transport (read-only contract)" },
+    { path = "hidapi::HidDevice::send_output_report", reason = "output reports are never sent (read-only contract)" },
+    { path = "hidapi::HidDevice::send_feature_report", reason = "feature reports are never sent (read-only contract)" },
+    { path = "hidapi::HidDevice::get_feature_report", reason = "feature reports are never requested (read-only contract)" },
+]

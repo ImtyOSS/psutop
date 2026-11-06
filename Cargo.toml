@@ -1,0 +1,61 @@
+[package]
+name = "psutop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+description = "nvtop-style live monitor for the per-wire current of 12V-2x6 GPU power cables on MSI MPG Ai1x00TS PSUs (Linux)"
+publish = false
+
+# The data model, the alarm logic and, on Linux, the read-only MSI source are copied from
+# MeltAlarm (MIT, © 2026 Denis Domanskii) at commit 7763086 and maintained here: see
+# third_party/meltalarm/README.md. Nothing is fetched from MeltAlarm at build time.
+[dependencies]
+meltalarm-model = { path = "third_party/meltalarm/model" }
+meltalarm-core = { path = "third_party/meltalarm/core" }
+ratatui = "0.30"
+clap = { version = "4.6", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+signal-hook = "0.4"
+# Already built for crossterm; used directly to read the terminal's background-colour reply.
+rustix = { version = "1", features = ["event"] }
+
+# The hardware path. meltalarm-source-api only has a hidapi backend on Windows and Linux, so
+# these crates do not build on macOS; there psutop runs its simulator only.
+[target.'cfg(target_os = "linux")'.dependencies]
+meltalarm-source-api = { path = "third_party/meltalarm/source-api" }
+meltalarm-source-msi = { path = "third_party/meltalarm/source-msi" }
+libc = "0.2"
+
+# The copied crates are workspace members so their tests and the read-only clippy guard keep
+# running: `cargo test --workspace` (source-api and source-msi build on Linux only).
+[workspace]
+members = [
+    ".",
+    "third_party/meltalarm/model",
+    "third_party/meltalarm/core",
+    "third_party/meltalarm/source-api",
+    "third_party/meltalarm/source-msi",
+]
+default-members = [".", "third_party/meltalarm/model", "third_party/meltalarm/core"]
+
+[dev-dependencies]
+insta = "1.49"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+disallowed_methods = "deny"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev.package]
+insta.opt-level = 3
+similar.opt-level = 3

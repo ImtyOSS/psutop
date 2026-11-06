@@ -1,0 +1,34 @@
+---
+source: tests/ui.rs
+expression: text(&buf)
+---
+ psutop 0.1   looking for the PSU…  SIMULATED                14:02:11
+ PSU  OUT [        — / 1600 W]
+
+
+
+
+
+╭ PSU not found ─────────────────────────────────────────────────────╮
+│ No MSI MPG Ai1600TS / Ai1300TS on USB (0db0:808c or 0db0:aa6f).    │
+│ Check the PSU's USB cable to a motherboard USB 2.0 header.         │
+│ Looking again every 2 s.                                           │
+╰────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+        ╭ History · 5 min ─────────────────────────────────────────╮
+   20 A │                                                          │
+        │                                                          │
+        │                                                          │
+        │                                                          │
+   10 A │ waiting for samples…                                     │
+        │                                                          │
+        │                                                          │
+    0 A │                                                          │
+        ╰───┬───────────────────────────┬─────────────────────────┬╯
+            -5m                      -2m30s                      0s
+ F1Help  F3Raw  F5Pause  F6Window  F9Log  F10Quit     1 Hz · log off

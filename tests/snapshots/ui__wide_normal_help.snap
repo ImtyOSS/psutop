@@ -1,0 +1,44 @@
+---
+source: tests/ui.rs
+expression: text(&buf)
+---
+ psutop 0.1   MSI MPG Ai1600TS · fw sim · Safeguard+ ON (12.0 A / 5.5 A, 20 s → cut 180 s)  SIMULATED          14:02:11
+ PSU  OUT [|||||||||||||||||||||||        1202 / 1600 W]   12V 12.06 V  5V 5.03 V  3.3V 3.33 V   inferred
+╭ GPU power cable 1   ● OK  ─────────────────────── GPU 0 ╮ ╭ GPU power cable 2   ● OK  ─────────────────────── GPU 1 ╮
+│ Current per wire, A                                     │ │ Current per wire, A                                     │
+│                                                         │ │                                                         │
+│  ███       ███       ███       ███       ███       ███  │ │  ███       ███       ███       ███       ███       ███  │
+│  ▂▂▂       ▂▂▂       ▂▂▂       ▂▂▂       ▂▂▂       ▂▂▂  │ │  ▂▂▂       ▂▂▂       ▂▂▂       ▂▂▂       ▂▂▂       ▂▂▂  │
+│  ███       ███       ███       ███       ███       ███  │ │  ███       ███       ███       ███       ███       ███  │
+│  ███       ███       ███       ███       ███       ███  │ │  ███       ███       ███       ███       ███       ███  │
+│  ▂▂▂       ███       ███       ███       ▁▁▁       ▂▂▂  │ │  ▂▂▂       ███       ███       ███       ▁▁▁       ▂▂▂  │
+│  ███       ▆▆▆       ▄▄▄       ▆▆▆       ███       ███  │ │  ███       ▆▆▆       ▄▄▄       ▆▆▆       ███       ███  │
+│  ███       ███       ███  ╭ Help ────────────────────────────────────────────────────────╮ ███       ███       ███  │
+│  ███       ███       ███  │ F1  ?         this help                                      │ ███       ███       ███  │
+│  ███       ███       ███  │ F3  r         raw frames instead of the chart                │ ███       ███       ███  │
+│  ███       ███       ███  │ F5  p         pause the display (an alarm resumes it)        │ ███       ███       ███  │
+│  ███       ███       ███  │ F6  ← →       chart window: 1 / 5 / 15 / 60 min              │ ███       ███       ███  │
+│  8.1       7.8       7.7  │ F9  l         CSV log on/off (~/.local/state/psutop/)        │ 7.8       8.0       8.1  │
+│                           │ 1  2          zoom one cable; again to go back               │                          │
+│ ──────────────────────────│ c             clear peak markers (zoom view)                 │───────────────────────── │
+│ Imbalance                 │ F10  q  Esc   quit                                           │ status                   │
+│ 0.4 A                     │                                                              │mal                       │
+╰───────────────────────────│ States: OK · Caution · ALARM · No data · Not connected       │──────────────────────────╯
+                            │ Bars: the top is the alarm limit, the cut is the rating.     │
+        ╭ History · 5 min ──│ Only the PSU cuts power; psutop is a monitor.                │─────────────────────────╮
+   20 A │ GPU 0   8.1 A     │ Cable labels (GPU 0 / GPU 1) are set in ~/.config/psutop/conf│                         │
+        │ GPU 1   8.1 A     │                                                              │                         │
+        │                   │ Built on MeltAlarm (MIT) © 2026 Denis Domanskii              │                         │
+   15 A │                   │ github.com/DeniDoman/meltalarm                               │                         │
+        │                   ╰──────────────────────────────────────────────────────────────╯                         │
+        │                                                                                                            │
+   10 A │                                                                                                            │
+        │                                                                                                          ──│
+        │                                                                                                            │
+    5 A │                                                                                                            │
+        │                                                                                                            │
+        │                                                                                                            │
+    0 A │                                                                                                            │
+        ╰───────┬─────────────────────────┬───────────────────────┬─────────────────────────┬───────────────────────┬╯
+                -5m                    -3m45s                  -2m30s                    -1m15s                    0s
+ F1Help  F3Raw  F5Pause  F6Window  F9Log  F10Quit                                                       1 Hz · log off

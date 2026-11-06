@@ -1,0 +1,24 @@
+---
+source: tests/ui.rs
+expression: text(&buf)
+---
+ psutop 0.1     SIM                      14:02:11
+ PSU not found: No MSI MPG Ai1600TS / Ai1300TS on
+        ╭ 5 min ───────────────────────────────╮
+   20 A │                                      │
+        │                                      │
+        │                                      │
+   15 A │                                      │
+        │                                      │
+        │                                      │
+        │                                      │
+   10 A │ waiting for samples…                 │
+        │                                      │
+        │                                      │
+    5 A │                                      │
+        │                                      │
+        │                                      │
+    0 A │                                      │
+        ╰─┬─────────────────┬─────────────────┬╯
+          -5m            -2m30s              0s
+ F1Help F3Raw F5Pause F6Win F9Log F10Quit

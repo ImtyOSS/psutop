@@ -1,0 +1,22 @@
+# Copied from MeltAlarm (MIT, © 2026 Denis Domanskii), crates/source-msi at commit 7763086.
+# Owned and maintained in psutop from here on; what changed: ../README.md. Licence: ../LICENSE.
+[package]
+name = "meltalarm-source-msi"
+description = "MeltAlarm source for MSI MPG Ai1300TS / Ai1600TS PSUs (GPU Safeguard+), read-only"
+version = "0.3.9"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+meltalarm-model = { path = "../model" }
+meltalarm-source-api = { path = "../source-api" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+disallowed_methods = "deny"

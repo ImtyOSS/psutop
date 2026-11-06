@@ -1,0 +1,329 @@
+diff --git a/crates/source-msi/src/lib.rs b/crates/source-msi/src/lib.rs
+index 7298b6a..857918e 100644
+--- a/crates/source-msi/src/lib.rs
++++ b/crates/source-msi/src/lib.rs
+@@ -3,6 +3,11 @@
+ //! Read-only by construction: the only bytes this crate can send come from `protocol::packet`
+ //! over the closed `Request` enum (8 reads + MSI's connect handshake), and they reach the
+ //! device through a single call site in `transport` (docs/ARCHITECTURE.md §9).
++//!
++//! For frontends that show more than the [`Report`] (raw frames, packet traces),
++//! [`discover_msi`] keeps the concrete [`MsiSource`]: [`MsiSource::last_frames`] returns the
++//! last poll's replies and an optional [`Tap`] observes every packet. Neither can change what
++//! is sent.
+ 
+ mod lock;
+ pub mod protocol;
+@@ -10,13 +15,13 @@ mod transport;
+ 
+ use std::time::{Duration, Instant};
+ 
+-use meltalarm_model::{Capabilities, ConnectorInfo, ConnectorReading, Protection, Report, SourceId, SourceInfo, Verdict};
++use meltalarm_model::{Capabilities, ConnectorInfo, ConnectorReading, Report, SourceId, SourceInfo, Verdict};
+ use meltalarm_source_api::hidapi::HidDevice;
+ use meltalarm_source_api::{Discovery, Driver, HidContext, Source};
+ 
+ use lock::PsuLock;
+-use protocol::{PID_AI1300TS, PID_AI1600TS, Reg, Request, VID, device_status};
+-pub use transport::TxError;
++use protocol::{Frame, PID_AI1300TS, PID_AI1600TS, Reg, Request, VID, device_status};
++pub use transport::{Tap, TxError, Wire};
+ 
+ const CONFIG_REFRESH: Duration = Duration::from_secs(60);
+ 
+@@ -28,45 +33,62 @@ impl Driver for MsiDriver {
+     }
+ 
+     fn discover(&self, hid: &mut HidContext) -> Discovery {
+-        let api = match hid.refreshed() {
+-            Ok(api) => api,
+-            Err(e) => return Discovery::NotReady(format!("USB HID is not available ({e})")),
+-        };
+-        // The product id identifies a Safeguard+ (TS) model: MSI Center and the Afterburner
+-        // plugin select the TS protocol by these PIDs alone.
+-        let Some(dev_info) = api.device_list().find(|d| d.vendor_id() == VID && [PID_AI1300TS, PID_AI1600TS].contains(&d.product_id()))
+-        else {
+-            return Discovery::NotPresent;
+-        };
+-        let pid = dev_info.product_id();
+-        let device = match dev_info.open_device(api) {
+-            Ok(d) => d,
+-            Err(e) => return Discovery::NotReady(format!("PSU found but could not be opened ({e})")),
+-        };
+-        let lock = match PsuLock::platform() {
+-            Ok(l) => l,
+-            Err(msg) => return Discovery::Unusable(msg),
+-        };
+-        match MsiSource::identify(device, lock, pid) {
++        match discover_msi(hid, None) {
+             Ok(src) => Discovery::Found(Box::new(src)),
+-            Err(e) => Discovery::NotReady(format!("PSU found but not answering ({e:?})")),
++            Err(d) => d,
+         }
+     }
+ }
+ 
++/// [`MsiDriver::discover`] keeping the concrete source, with `tap` observing every packet from
++/// the handshake on. `Err` is any outcome but `Found`.
++pub fn discover_msi(hid: &mut HidContext, tap: Option<Tap>) -> Result<MsiSource, Discovery> {
++    let api = match hid.refreshed() {
++        Ok(api) => api,
++        Err(e) => return Err(Discovery::NotReady(format!("USB HID is not available ({e})"))),
++    };
++    // The product id identifies a Safeguard+ (TS) model: MSI Center and the Afterburner
++    // plugin select the TS protocol by these PIDs alone.
++    let Some(dev_info) = api.device_list().find(|d| d.vendor_id() == VID && [PID_AI1300TS, PID_AI1600TS].contains(&d.product_id())) else {
++        return Err(Discovery::NotPresent);
++    };
++    let pid = dev_info.product_id();
++    let device = match dev_info.open_device(api) {
++        Ok(d) => d,
++        Err(e) => return Err(Discovery::NotReady(format!("PSU found but could not be opened ({e})"))),
++    };
++    let lock = match PsuLock::platform() {
++        Ok(l) => l,
++        Err(msg) => return Err(Discovery::Unusable(msg)),
++    };
++    MsiSource::identify(device, lock, pid, tap).map_err(|e| Discovery::NotReady(format!("PSU found but not answering ({e:?})")))
++}
++
++/// The replies of the last poll, from the opcode on; `None` where the read failed or, for the
++/// Safeguard+ config, was not due this tick.
++#[derive(Clone, Debug, Default, PartialEq)]
++pub struct PollFrames {
++    pub telemetry: Option<Frame>,
++    pub safeguard_status: Option<Frame>,
++    pub protection_flags: Option<Frame>,
++    pub safeguard_config: Option<Frame>,
++}
++
+ pub struct MsiSource {
+     device: HidDevice,
+     lock: PsuLock,
+     info: SourceInfo,
+     last_config: Option<Instant>,
++    tap: Option<Tap>,
++    frames: PollFrames,
+ }
+ 
+ impl MsiSource {
+     /// MSI's connect sequence (`CONNECT_PSU`): handshake, then identity. The PSU must answer to
+     /// count as found (source rule 8). Its model string is only for display.
+-    fn identify(device: HidDevice, lock: PsuLock, pid: u16) -> Result<Self, TxError> {
+-        transport::transact(&device, &lock, Request::Handshake)?;
+-        let text = |reg| transport::transact(&device, &lock, Request::Read(reg)).map(|f| f.text());
++    fn identify(device: HidDevice, lock: PsuLock, pid: u16, tap: Option<Tap>) -> Result<Self, TxError> {
++        transport::transact(&device, &lock, Request::Handshake, tap.as_ref())?;
++        let text = |reg| transport::transact(&device, &lock, Request::Read(reg), tap.as_ref()).map(|f| f.text());
+         let (id, default_model) = if pid == PID_AI1600TS { ("msi:ai1600ts", "MPG Ai1600TS") } else { ("msi:ai1300ts", "MPG Ai1300TS") };
+         let reported = text(Reg::MfrModel)?;
+         let model = if reported.starts_with("MPG") { reported } else { default_model.to_owned() };
+@@ -80,21 +102,26 @@ impl MsiSource {
+             caps: Capabilities { device_verdict: true, device_limits: true, cutoff_timer: true, wire_flags: true },
+             protection_name: Some("Safeguard+".into()),
+         };
+-        Ok(MsiSource { device, lock, info, last_config: None })
++        Ok(MsiSource { device, lock, info, last_config: None, tap, frames: PollFrames::default() })
+     }
+ 
+-    fn read(&self, reg: Reg) -> Result<protocol::Frame, TxError> {
+-        transport::transact(&self.device, &self.lock, Request::Read(reg))
++    fn read(&self, reg: Reg) -> Result<Frame, TxError> {
++        transport::transact(&self.device, &self.lock, Request::Read(reg), self.tap.as_ref())
+     }
+ 
+-    fn read_protection(&mut self, now: Instant) -> Option<Protection> {
++    fn read_config(&mut self, now: Instant) -> Option<Frame> {
+         let due = self.last_config.is_none_or(|t| now.duration_since(t) >= CONFIG_REFRESH);
+         if !due {
+             return None;
+         }
+-        let p = self.read(Reg::SafeguardConfig).ok()?.protection();
++        let f = self.read(Reg::SafeguardConfig).ok()?;
+         self.last_config = Some(now);
+-        Some(p)
++        Some(f)
++    }
++
++    /// The replies of the last [`Source::poll`].
++    pub fn last_frames(&self) -> &PollFrames {
++        &self.frames
+     }
+ }
+ 
+@@ -107,8 +134,16 @@ impl Source for MsiSource {
+         let at = Instant::now();
+         let telemetry = self.read(Reg::Telemetry);
+         let status = self.read(Reg::SafeguardStatus);
+-        let flags = self.read(Reg::ProtectionFlags).map(|f| f.flags());
+-        let protection = self.read_protection(at);
++        let flags_frame = self.read(Reg::ProtectionFlags);
++        let config = self.read_config(at);
++        let flags = flags_frame.as_ref().map(|f| f.flags());
++        let protection = config.as_ref().map(Frame::protection);
++        self.frames = PollFrames {
++            telemetry: telemetry.as_ref().ok().cloned(),
++            safeguard_status: status.as_ref().ok().cloned(),
++            protection_flags: flags_frame.as_ref().ok().cloned(),
++            safeguard_config: config,
++        };
+ 
+         let readings = telemetry.ok().map(|f| {
+             let w = f.wire_currents();
+diff --git a/crates/source-msi/src/protocol.rs b/crates/source-msi/src/protocol.rs
+index 27b663a..696ab0c 100644
+--- a/crates/source-msi/src/protocol.rs
++++ b/crates/source-msi/src/protocol.rs
+@@ -143,6 +143,11 @@ impl Frame {
+         linear11(self.0[at], self.0[at + 1])
+     }
+ 
++    /// The reply from the opcode on (`[opcode][register][data…]`), 64 bytes.
++    pub fn bytes(&self) -> &[u8] {
++        &self.0[1..]
++    }
++
+     /// The reply from the opcode on, as uppercase hex without trailing zero bytes.
+     pub fn hex(&self) -> String {
+         let end = self.0.iter().rposition(|&b| b != 0).map_or(3, |i| i + 1).max(3);
+@@ -334,6 +339,13 @@ pub(crate) mod tests {
+         assert_eq!(device_status(9), DeviceStatus::Unknown(9));
+     }
+ 
++    #[test]
++    fn bytes_start_at_the_opcode() {
++        let f = ours(Reg::Telemetry, E0_IDLE);
++        assert_eq!(f.bytes().len(), FRAME - 1);
++        assert_eq!(&f.bytes()[..4], &[0x51, 0xE0, 0x16, 0xF0]);
++    }
++
+     #[test]
+     fn hex_trims_trailing_zeros() {
+         assert_eq!(ours(Reg::SafeguardConfig, C0_REF).hex(), C0_REF);
+diff --git a/crates/source-msi/src/transport.rs b/crates/source-msi/src/transport.rs
+index 5a0a9de..ca600af 100644
+--- a/crates/source-msi/src/transport.rs
++++ b/crates/source-msi/src/transport.rs
+@@ -12,6 +12,21 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(2);
+ const REPLY_DEADLINE: Duration = Duration::from_millis(500);
+ const MAX_DRAIN: usize = 64;
+ 
++/// What crossed the wire, for an observer such as a packet trace. An observer sees borrowed
++/// bytes only, after the fact: it cannot change what is sent (read-only contract).
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum Wire<'a> {
++    /// A request as written, report id included.
++    Sent(&'a [u8]),
++    /// A stale input report discarded before a request.
++    Drained(&'a [u8]),
++    /// An input report read while waiting for the reply: ours or another client's.
++    Received(&'a [u8]),
++}
++
++/// A packet observer (see [`Wire`]).
++pub type Tap = Box<dyn Fn(Wire<'_>) + Send>;
++
+ #[derive(Clone, Debug, PartialEq)]
+ pub enum TxError {
+     /// Another PSU reader held the lock too long; this read is skipped.
+@@ -45,20 +60,30 @@ impl Transport for HidDevice {
+     }
+ }
+ 
+-/// lock → drain stale reports → request → read until our echo → unlock.
+-pub(crate) fn transact(dev: &impl Transport, lock: &PsuLock, req: Request) -> Result<Frame, TxError> {
++/// lock → drain stale reports → request → read until our echo → unlock. `tap` observes every
++/// report read and the request once written.
++pub(crate) fn transact(dev: &impl Transport, lock: &PsuLock, req: Request, tap: Option<&Tap>) -> Result<Frame, TxError> {
+     let _guard = lock.acquire(LOCK_TIMEOUT)?;
+     let io = |e: io::Error| TxError::Io(e.to_string());
++    let observe = |w: Wire<'_>| {
++        if let Some(t) = tap {
++            t(w);
++        }
++    };
+ 
+     // Other clients' replies are delivered to our handle too (F17): discard them first.
+     let mut buf = [0u8; FRAME];
+     for _ in 0..MAX_DRAIN {
+-        if dev.recv(&mut buf, 0).map_err(io)? == 0 {
++        let n = dev.recv(&mut buf, 0).map_err(io)?;
++        if n == 0 {
+             break;
+         }
++        observe(Wire::Drained(&buf[..n]));
+     }
+ 
+-    dev.send(&packet(req)).map_err(io)?;
++    let request = packet(req);
++    dev.send(&request).map_err(io)?;
++    observe(Wire::Sent(&request));
+ 
+     let deadline = Instant::now() + REPLY_DEADLINE;
+     loop {
+@@ -71,6 +96,7 @@ pub(crate) fn transact(dev: &impl Transport, lock: &PsuLock, req: Request) -> Re
+         if n == 0 {
+             continue;
+         }
++        observe(Wire::Received(&buf[..n]));
+         match classify(req, &buf[..n]) {
+             Reply::Ours(frame) => return Ok(frame),
+             Reply::Busy => return Err(TxError::Busy),
+@@ -129,7 +155,7 @@ mod tests {
+         // A stale E0 (another client's, wire 1 = 12 A) must not be taken as our answer.
+         let stale_e0 = format!("{}C0E0{}", &E0_IDLE[..16], &E0_IDLE[20..]);
+         let dev = Fake::new(&[&stale_e0, C1_NORMAL], &[E0_IDLE]);
+-        let f = transact(&dev, &PsuLock::None, TELEMETRY).unwrap();
++        let f = transact(&dev, &PsuLock::None, TELEMETRY, None).unwrap();
+         assert_eq!(f.wire_currents()[0], [0.125; 6]);
+         assert!(dev.stale.borrow().is_empty());
+         assert_eq!(dev.sent.borrow().len(), 1);
+@@ -138,21 +164,44 @@ mod tests {
+     #[test]
+     fn skips_foreign_replies_after_request() {
+         let dev = Fake::new(&[], &[C1_NORMAL, C1_NORMAL, E0_IDLE]);
+-        assert!(transact(&dev, &PsuLock::None, TELEMETRY).is_ok());
++        assert!(transact(&dev, &PsuLock::None, TELEMETRY, None).is_ok());
+     }
+ 
+     #[test]
+     fn busy_and_timeout_are_errors_not_zeros() {
+         let dev = Fake::new(&[], &["51E0FE"]);
+-        assert_eq!(transact(&dev, &PsuLock::None, TELEMETRY), Err(TxError::Busy));
++        assert_eq!(transact(&dev, &PsuLock::None, TELEMETRY, None), Err(TxError::Busy));
+         let dev = Fake::new(&[], &[C1_NORMAL]);
+-        assert_eq!(transact(&dev, &PsuLock::None, TELEMETRY), Err(TxError::Timeout));
++        assert_eq!(transact(&dev, &PsuLock::None, TELEMETRY, None), Err(TxError::Timeout));
+     }
+ 
+     #[test]
+     fn sends_only_the_read_request() {
+         let dev = Fake::new(&[], &[E0_IDLE]);
+-        transact(&dev, &PsuLock::None, TELEMETRY).unwrap();
++        transact(&dev, &PsuLock::None, TELEMETRY, None).unwrap();
+         assert_eq!(dev.sent.borrow()[0], packet(TELEMETRY));
+     }
++
++    #[test]
++    fn the_tap_sees_drained_sent_and_received_bytes_only() {
++        use std::sync::{Arc, Mutex};
++        type Log = Arc<Mutex<Vec<(char, Vec<u8>)>>>;
++        let seen: Log = Arc::default();
++        let log = Arc::clone(&seen);
++        let tap: Tap = Box::new(move |w| {
++            let (k, b) = match w {
++                Wire::Drained(b) => ('d', b),
++                Wire::Sent(b) => ('s', b),
++                Wire::Received(b) => ('r', b),
++            };
++            log.lock().unwrap().push((k, b.to_vec()));
++        });
++        let dev = Fake::new(&[C1_NORMAL], &[C1_NORMAL, E0_IDLE]);
++        assert!(transact(&dev, &PsuLock::None, TELEMETRY, Some(&tap)).is_ok());
++        let seen = seen.lock().unwrap();
++        let kinds: String = seen.iter().map(|(k, _)| *k).collect();
++        assert_eq!(kinds, "dsrr");
++        assert_eq!(seen[1].1, packet(TELEMETRY).to_vec(), "the tap sees exactly what was written");
++        assert_eq!(dev.sent.borrow().len(), 1, "observing sends nothing");
++    }
+ }

@@ -1,0 +1,24 @@
+---
+source: tests/ui.rs
+expression: text(&buf)
+---
+ psutop 0.1   Safeguard+ ON  SIM         14:02:11
+Cable 1  ● OK       ▅▄▄▄▄▅  Imbalance 0.4 A
+Cable 2  ● ALARM    ▇▇▁▇▇▇  Imbalance · cut ~2:58
+ ⚠ Cable 2 · POWER CUT IN ~2:58 · STOP GPU LOAD NO
+        ╭ 5 min ───────────────────────────────╮
+   20 A │ GPU 0   8.1 A                        │
+        │ GPU 1   9.9 A                        │
+        │                                      │
+   15 A │                                      │
+        │                                      │
+        │                                      │
+   10 A │                                     ─│
+        │                                    ──│
+    5 A │                                      │
+        │                                      │
+        │                                      │
+    0 A │                                      │
+        ╰─┬─────────────────┬─────────────────┬╯
+          -5m            -2m30s              0s
+ F1Help F3Raw F5Pause F6Win F9Log F10Quit

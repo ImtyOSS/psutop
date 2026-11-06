@@ -1,0 +1,15 @@
+# Copied from MeltAlarm (MIT, © 2026 Denis Domanskii), crates/model at commit 7763086.
+# Owned and maintained in psutop from here on: ../README.md. Licence: ../LICENSE.
+[package]
+name = "meltalarm-model"
+description = "Vendor-neutral vocabulary for per-wire 12V-2x6 current readings"
+version = "0.3.9"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+disallowed_methods = "deny"

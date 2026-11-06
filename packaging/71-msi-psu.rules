@@ -1,0 +1,22 @@
+# psutop: let the user logged in at this machine open the MSI MPG Ai1600TS / Ai1300TS PSU's
+# hidraw node without sudo.
+#
+# TAG+="uaccess" makes systemd-logind give the user of the active local session (the one at
+# the machine's own screen and keyboard) access to the device, and take it away when they log
+# out, the same way webcams and USB drives work. No group, no re-login. This file sorts
+# before 73-seat-late.rules, which is what makes the tag work.
+#
+#   sudo install -m 0644 71-msi-psu.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw
+#
+# Over SSH or on a headless machine there is no local session: run `sudo psutop` there.
+#
+# Optional, for SSH use without sudo: give the device to a group of its own and add only users
+# you trust with the PSU's settings. Whoever can open the device can send the PSU any command,
+# including ones that switch off its Safeguard+ protection; psutop itself only ever reads. Avoid
+# broad groups such as plugdev on shared machines. Replace the two rules below with:
+#   KERNEL=="hidraw*", ATTRS{idVendor}=="0db0", ATTRS{idProduct}=="808c", MODE="0660", GROUP="msipsu", TAG+="uaccess"
+#   KERNEL=="hidraw*", ATTRS{idVendor}=="0db0", ATTRS{idProduct}=="aa6f", MODE="0660", GROUP="msipsu", TAG+="uaccess"
+# then: sudo groupadd --system msipsu && sudo usermod -aG msipsu "$USER", and log in again.
+KERNEL=="hidraw*", ATTRS{idVendor}=="0db0", ATTRS{idProduct}=="808c", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="0db0", ATTRS{idProduct}=="aa6f", TAG+="uaccess"
