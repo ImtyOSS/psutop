@@ -62,7 +62,7 @@ own software sends, and nothing that could change a setting.
 |---|---|---|
 | Ubuntu 26.04 LTS, kernel 7.0, x86_64, MSI MPG Ai1600TS (firmware 10), two GPUs | Full hardware checklist: permissions, values identical to an independent reader, 10-minute soak at 0.1% CPU, two readers at once, `--trace-io` read-only proof | 2026-10-15 |
 | macOS 26 (Apple silicon) | Simulator, all layouts, test suite | 2026-10-15 |
-| Ubuntu 24.04 and macOS 14 (GitHub Actions) | Build, tests and lints on every push, once the repository is on GitHub | — |
+| Ubuntu 24.04 and the latest macOS (GitHub Actions) | Build, tests and lints on every push | — |
 
 Other distributions with systemd (Debian, Fedora, Arch, …) should work the same way but
 haven't been tried yet. Reports are welcome, with your distro, kernel, PSU and firmware

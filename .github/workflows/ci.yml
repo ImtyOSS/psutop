@@ -13,7 +13,7 @@ jobs:
     # allowlist test and clippy guard.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
       - run: rustup toolchain install stable --profile minimal --component clippy,rustfmt && rustup default stable
       - run: cargo fmt --all --check
@@ -22,9 +22,9 @@ jobs:
 
   macos:
     # The simulator-only build used for UI work.
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal --component clippy && rustup default stable
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked

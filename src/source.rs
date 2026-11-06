@@ -364,9 +364,20 @@ mod tests {
     #[test]
     fn a_stalled_reader_never_grows_the_queue_past_its_bound() {
         let acq = spawn(Box::new(crate::sim::SimFeed::new("normal")), Duration::from_millis(1));
+        // Hundreds of polls, none read.
         std::thread::sleep(Duration::from_millis(400));
+        // Stop the thread before counting: reading while it runs frees slots it refills at once.
+        acq.stop.store(true, Ordering::Relaxed);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !acq.handle.as_ref().is_some_and(|h| h.is_finished()) {
+            assert!(Instant::now() < deadline, "the thread did not stop");
+            std::thread::sleep(Duration::from_millis(5));
+        }
         let queued = acq.rx.try_iter().count();
         assert!(queued <= QUEUE, "{queued} queued");
+        // A full queue never keeps shutdown waiting.
+        let acq = spawn(Box::new(crate::sim::SimFeed::new("normal")), Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(200));
         let start = Instant::now();
         drop(acq);
         assert!(start.elapsed() < Duration::from_secs(2));
